@@ -1,0 +1,31 @@
+{
+  "id": "07a2be9f-08d4-4a92-9cd9-55ab70bfb0ee",
+  "query": "Analyze the impact of AI on healthcare diagnostics",
+  "depth": "balanced",
+  "status": "error",
+  "createdAt": "2026-02-28T01:48:54.473Z",
+  "progress": 5,
+  "logs": [
+    {
+      "type": "info",
+      "message": "Research session started",
+      "ts": 1772243334473
+    },
+    {
+      "type": "info",
+      "message": "Analyzing query and planning research approach…",
+      "ts": 1772243334474
+    },
+    {
+      "type": "error",
+      "message": "Planning failed: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent: [403 Forbidden] Your API key was reported as leaked. Please use another API key.",
+      "ts": 1772243335919
+    }
+  ],
+  "sources": [],
+  "tasks": [],
+  "findings": [],
+  "report": null,
+  "error": "Planning failed: [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent: [403 Forbidden] Your API key was reported as leaked. Please use another API key.",
+  "completedAt": "2026-02-28T01:48:55.919Z"
+}

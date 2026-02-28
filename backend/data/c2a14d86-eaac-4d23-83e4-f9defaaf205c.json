@@ -1,0 +1,31 @@
+{
+  "id": "c2a14d86-eaac-4d23-83e4-f9defaaf205c",
+  "query": "Analyze the impact of AI on healthcare diagnostics",
+  "depth": "balanced",
+  "status": "error",
+  "createdAt": "2026-02-28T01:28:30.976Z",
+  "progress": 5,
+  "logs": [
+    {
+      "type": "info",
+      "message": "Research session started",
+      "ts": 1772242110976
+    },
+    {
+      "type": "info",
+      "message": "Analyzing query and planning research approach…",
+      "ts": 1772242110977
+    },
+    {
+      "type": "error",
+      "message": "Planning failed: geminiService.generateStructured is not a function",
+      "ts": 1772242110983
+    }
+  ],
+  "sources": [],
+  "tasks": [],
+  "findings": [],
+  "report": null,
+  "error": "Planning failed: geminiService.generateStructured is not a function",
+  "completedAt": "2026-02-28T01:28:30.983Z"
+}

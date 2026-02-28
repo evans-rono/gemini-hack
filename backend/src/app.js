@@ -18,9 +18,20 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration
+// CORS configuration — accept all configured origins (supports both 5173 and 5174)
+const allowedOrigins = [
+    process.env.CLIENT_URL || 'http://localhost:5173',
+    'http://localhost:5173',
+    'http://localhost:5174',
+];
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5174',
+    origin: (origin, callback) => {
+        // Allow requests with no origin (curl, Postman) and any allowed origin
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
     optionsSuccessStatus: 200
 }));
