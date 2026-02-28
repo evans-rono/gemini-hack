@@ -16,8 +16,7 @@
  *   POST /api/research/:id/export   — Export report in given format
  */
 
-const API_BASE =
-    import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API_BASE = 'https://gemini-hack12.onrender.com/api'
 
 /* ── Helper ── */
 

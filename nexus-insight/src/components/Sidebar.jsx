@@ -93,7 +93,7 @@ function SettingsContent() {
             Backend endpoint for the Gemini-powered research API
           </p>
           <div className="px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-950/50 text-xs font-mono text-slate-500">
-            {import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}
+            {'https://gemini-hack12.onrender.com/api'}
           </div>
         </div>
       </div>
