@@ -1,6 +1,8 @@
 // src/services/orchestrator.service.js
 const { v4: uuidv4 } = require('uuid');
 const EventEmitter = require('events');
+const fs = require('fs').promises;
+const path = require('path');
 const logger = require('../utils/logger');
 const plannerAgent = require('../agents/planner.agent');
 const synthesizerAgent = require('../agents/synthesizer.agent');
@@ -23,9 +25,70 @@ class ResearchOrchestrator extends EventEmitter {
         this.researchHistory = [];
         this.researcherPool = [];
         this.maxConcurrentTasks = parseInt(process.env.MAX_PARALLEL_TASKS) || 3;
+        this.dataDir = path.join(__dirname, '../../data');
 
         this.initializeResearcherPool();
+        this._loadHistory();
         logger.info('ResearchOrchestrator initialized');
+    }
+
+    async _loadHistory() {
+        try {
+            await fs.mkdir(this.dataDir, { recursive: true });
+            const files = await fs.readdir(this.dataDir);
+            for (const file of files) {
+                if (file.endsWith('.json')) {
+                    try {
+                        const data = JSON.parse(await fs.readFile(path.join(this.dataDir, file), 'utf-8'));
+                        // Only load completed or failed sessions, ignore stuck 'initializing' ones from crash
+                        if (['complete', 'completed', 'failed', 'error'].includes(data.status)) {
+                            this.researchHistory.push({
+                                id: data.id,
+                                query: data.query,
+                                status: data.status,
+                                createdAt: data.createdAt,
+                                generatedAt: data.generatedAt
+                            });
+                            // Also cache full object if needed, but for now just history summary
+                            // If it was recent (e.g. last 10 mins), maybe restore as active?
+                            // For simplicity: just load into history.
+                        }
+                    } catch (e) {
+                        logger.warn(`Failed to parse history file ${file}: ${e.message}`);
+                    }
+                }
+            }
+            // Sort by date desc
+            this.researchHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            logger.info(`Loaded ${this.researchHistory.length} past research sessions`);
+        } catch (error) {
+            logger.warn('Failed to load history:', error);
+        }
+    }
+
+    async _saveSession(research) {
+        try {
+            await fs.mkdir(this.dataDir, { recursive: true });
+            const filePath = path.join(this.dataDir, `${research.id}.json`);
+            await fs.writeFile(filePath, JSON.stringify(research, null, 2));
+        } catch (error) {
+            logger.error(`Failed to save session ${research.id}:`, error);
+        }
+    }
+
+    async getReport(researchId) {
+        // Check active first
+        const active = this.activeResearch.get(researchId);
+        if (active) return active.report;
+
+        // Check disk
+        try {
+            const filePath = path.join(this.dataDir, `${researchId}.json`);
+            const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+            return data.report;
+        } catch {
+            return null;
+        }
     }
 
     initializeResearcherPool() {
@@ -185,6 +248,9 @@ class ResearchOrchestrator extends EventEmitter {
             // Remove from active after 5 minutes (frontend has time to fetch)
             setTimeout(() => this.activeResearch.delete(researchId), 5 * 60 * 1000);
 
+            // Persist to disk
+            await this._saveSession(research);
+
             logger.info(`Research completed [${researchId}] in ${research.duration}ms`);
 
         } catch (error) {
@@ -198,6 +264,9 @@ class ResearchOrchestrator extends EventEmitter {
             this.researchHistory.unshift(research);
 
             this.emit('failed', { researchId, error: error.message });
+
+            // Persist failed session to disk
+            await this._saveSession(research);
 
             // Keep in active briefly so frontend can poll the error
             setTimeout(() => this.activeResearch.delete(researchId), 2 * 60 * 1000);

@@ -1,13 +1,11 @@
 // src/services/search.service.js
 const geminiService = require('./gemini.service');
 const logger = require('../utils/logger');
+const { search } = require('duck-duck-scrape');
 
 /**
- * SearchService — uses Gemini to generate realistic research-style search results.
- *
- * In a production setup you'd integrate Google Custom Search, SerpAPI, or
- * Brave Search here. For this project we leverage Gemini itself to produce
- * grounded, knowledge-based search results for each keyword set.
+ * SearchService — uses DuckDuckGo for real search results, falling back to
+ * Gemini simulation if real search fails.
  */
 class SearchService {
     /**
@@ -16,8 +14,32 @@ class SearchService {
      */
     async search(keywords, taskDescription) {
         try {
-            logger.info(`Searching for: ${keywords.join(', ')}`);
+            const query = keywords.join(' ');
+            logger.info(`Searching for: ${query}`);
 
+            // Try real search first (DuckDuckGo)
+            try {
+                const searchResults = await search(query, {
+                    safeSearch: "Strict",
+                    offset: 0
+                });
+
+                if (searchResults.results && searchResults.results.length > 0) {
+                    logger.info(`DuckDuckGo returned ${searchResults.results.length} results`);
+
+                    return searchResults.results.slice(0, 5).map(r => ({
+                        title: r.title,
+                        url: r.url,
+                        snippet: r.description ? r.description.replace(/<[^>]*>/g, '') : 'No description available',
+                        relevance: 1.0, // Assume real results are relevant
+                        source: new URL(r.url).hostname.replace(/^www\./, '')
+                    }));
+                }
+            } catch (searchError) {
+                logger.warn(`DuckDuckGo search failed: ${searchError.message}, falling back to Gemini`);
+            }
+
+            // Fallback: Gemini Hallucination (labeled as such)
             const prompt = `
 You are a research assistant with access to current knowledge. For the research task below,
 provide detailed, factual search results based on your training data.
