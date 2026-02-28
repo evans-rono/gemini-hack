@@ -1,18 +1,19 @@
 // src/routes/research.routes.js
 const express = require('express');
 const router = express.Router();
-const researchController = require('../controllers/research.controller');
+const rc = require('../controllers/research.controller');
 
-// POST /api/research - Start new research
-router.post('/research', researchController.startResearch);
+// ── Research lifecycle ──
+router.post('/research', rc.startResearch.bind(rc));
+router.get('/research/active', rc.getActiveResearch.bind(rc));
+router.get('/research/:researchId', rc.getProgress.bind(rc));
+router.get('/research/:researchId/report', rc.getReport.bind(rc));
+router.get('/research/:researchId/sources', rc.getSources.bind(rc));
+router.post('/research/:researchId/export', rc.exportReport.bind(rc));
+router.post('/research/:researchId/cancel', rc.cancelResearch.bind(rc));
 
-// GET /api/research/active - Get active research
-router.get('/research/active', researchController.getActiveResearch);
-
-// GET /api/research/:researchId/status - Get research status
-router.get('/research/:researchId/status', researchController.getStatus);
-
-// POST /api/research/:researchId/cancel - Cancel research
-router.post('/research/:researchId/cancel', researchController.cancelResearch);
+// ── History & system ──
+router.get('/history', rc.getHistory.bind(rc));
+router.get('/status', rc.getSystemStatus.bind(rc));
 
 module.exports = router;

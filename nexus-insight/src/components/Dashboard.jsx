@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Sidebar from './Sidebar'
 import ChatPanel from './ChatPanel'
@@ -10,27 +10,19 @@ import {
   getReport,
   getSources,
 } from '../services/api'
+import { subscribeToResearch } from '../services/socket'
 
 /**
  * Dashboard — the main 3-panel research interface.
  *
- * Layout:  Sidebar | ChatPanel + ChatInput | ReportPanel
- *
- * Data flow:
- *   1. User enters a query in ChatInput.
- *   2. Dashboard calls `startResearch(query)` which returns `{ id, status }`.
- *   3. Dashboard polls `getResearchProgress(id)` to receive live logs & sources.
- *   4. When complete, it fetches the full report with `getReport(id)`.
- *   5. ReportPanel renders the report and can export via the API.
- *
- * All data comes from the backend — no mock/fake data here.
+ * Uses WebSocket for instant real-time log/source streaming,
+ * with REST polling as a fallback to catch any missed updates.
  */
 
-const POLL_INTERVAL = 1500 // ms between progress polls
+const POLL_INTERVAL = 2000
 
 export default function Dashboard({ onBack }) {
-  // ── State ──
-  const [status, setStatus] = useState('idle')        // idle | thinking | complete | error
+  const [status, setStatus] = useState('idle')
   const [query, setQuery] = useState('')
   const [researchId, setResearchId] = useState(null)
   const [logs, setLogs] = useState([])
@@ -40,8 +32,15 @@ export default function Dashboard({ onBack }) {
   const [error, setError] = useState(null)
 
   const pollRef = useRef(null)
+  const unsubRef = useRef(null)
 
-  // ── Helpers ──
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling()
+      if (unsubRef.current) unsubRef.current()
+    }
+  }, [])
 
   function addLog(type, message) {
     setLogs(prev => [...prev, { type, message, ts: Date.now() }])
@@ -54,9 +53,41 @@ export default function Dashboard({ onBack }) {
     }
   }
 
-  // ── Start research ──
+  // Handle incoming progress data (from WS or REST)
+  const handleProgressData = useCallback((data) => {
+    if (data.logs?.length) {
+      setLogs(data.logs.map(l => ({
+        type: l.type || 'info',
+        message: l.message,
+        ts: l.ts || Date.now(),
+      })))
+    }
+
+    if (data.sources?.length) {
+      setSources(data.sources)
+    }
+
+    if (typeof data.progress === 'number') {
+      setProgress(data.progress)
+    }
+
+    // Map backend statuses to frontend statuses
+    const statusMap = {
+      initializing: 'thinking',
+      planning: 'thinking',
+      researching: 'thinking',
+      synthesizing: 'thinking',
+      complete: 'complete',
+      completed: 'complete',
+      failed: 'error',
+      error: 'error',
+    }
+    const mapped = statusMap[data.status]
+    if (mapped) setStatus(mapped)
+  }, [])
+
   const handleSend = useCallback(async (text) => {
-    // Reset state
+    // Reset
     setStatus('thinking')
     setQuery(text)
     setLogs([])
@@ -68,85 +99,83 @@ export default function Dashboard({ onBack }) {
     addLog('info', `Starting research: "${text}"`)
 
     try {
-      // 1) Kick off the research session
-      const { id } = await startResearch(text)
+      const data = await startResearch(text)
+      const id = data.id
       setResearchId(id)
-      addLog('info', `Research session started (id: ${id.slice(0, 8)}…)`)
+      addLog('info', `Session started (${id.slice(0, 8)}…)`)
 
-      // 2) Poll for progress
+      // 1) Subscribe via WebSocket for instant updates
+      if (unsubRef.current) unsubRef.current()
+      unsubRef.current = subscribeToResearch(id, {
+        onProgress: (wsData) => handleProgressData(wsData),
+        onCompleted: async (wsData) => {
+          stopPolling()
+          setProgress(100)
+          setStatus('complete')
+
+          if (wsData.report) {
+            setReport(wsData.report)
+          } else {
+            try {
+              const rpt = await getReport(id)
+              setReport(rpt)
+            } catch { /* ignore */ }
+          }
+
+          if (wsData.sources?.length) {
+            setSources(wsData.sources)
+          } else {
+            try {
+              const src = await getSources(id)
+              setSources(Array.isArray(src) ? src : [])
+            } catch { /* ignore */ }
+          }
+        },
+        onFailed: (wsData) => {
+          stopPolling()
+          setStatus('error')
+          setError(wsData.error || 'Research failed')
+        },
+      })
+
+      // 2) Also start REST polling as fallback
       pollRef.current = setInterval(async () => {
         try {
-          const data = await getResearchProgress(id)
+          const pollData = await getResearchProgress(id)
+          handleProgressData(pollData)
 
-          // Merge incoming logs
-          if (data.logs?.length) {
-            setLogs(prev => {
-              const existingCount = prev.length
-              const newLogs = data.logs.slice(existingCount).map(l => ({
-                type: l.type || 'info',
-                message: l.message,
-                ts: l.ts || Date.now(),
-              }))
-              return [...prev, ...newLogs]
-            })
-          }
-
-          // Merge sources
-          if (data.sources?.length) {
-            setSources(data.sources)
-          }
-
-          // Update progress
-          if (typeof data.progress === 'number') {
-            setProgress(data.progress)
-          }
-
-          // Check completion
-          if (data.status === 'complete') {
+          if (pollData.status === 'complete' || pollData.status === 'completed') {
             stopPolling()
             setProgress(100)
-            addLog('done', 'Research complete — generating report')
-
-            // 3) Fetch the final report
-            try {
-              const reportData = await getReport(id)
-              setReport(reportData)
-            } catch {
-              addLog('error', 'Failed to fetch report')
-            }
-
-            // 4) Fetch final sources
-            try {
-              const srcData = await getSources(id)
-              setSources(Array.isArray(srcData) ? srcData : srcData.sources || [])
-            } catch {
-              // sources may already be populated from polling
-            }
-
             setStatus('complete')
+
+            try {
+              const rpt = await getReport(id)
+              setReport(rpt)
+            } catch { /* ignore */ }
+
+            try {
+              const src = await getSources(id)
+              setSources(Array.isArray(src) ? src : [])
+            } catch { /* ignore */ }
           }
 
-          // Check for error
-          if (data.status === 'error') {
+          if (pollData.status === 'error' || pollData.status === 'failed') {
             stopPolling()
             setStatus('error')
-            setError(data.error || 'Research failed')
-            addLog('error', data.error || 'Research encountered an error')
+            setError(pollData.error || 'Research failed')
           }
-        } catch (err) {
-          // Polling error — don't stop, backend might recover
-          console.warn('Poll error:', err.message)
+        } catch {
+          // Backend unreachable — keep trying
         }
       }, POLL_INTERVAL)
+
     } catch (err) {
       setStatus('error')
       setError(err.message)
-      addLog('error', `Failed to start research: ${err.message}`)
+      addLog('error', `Failed to start: ${err.message}`)
     }
-
-    // Cleanup on unmount
-    return () => stopPolling()
-  }, [])
+  }, [handleProgressData])
 
   return (
     <motion.div
@@ -156,10 +185,10 @@ export default function Dashboard({ onBack }) {
       transition={{ duration: 0.35 }}
       className="flex w-full h-full bg-slate-950 noise-overlay"
     >
-      {/* ── Left: Sidebar ── */}
+      {/* Left: Sidebar */}
       <Sidebar onBack={onBack} activeResearchId={researchId} />
 
-      {/* ── Center: Chat feed + input ── */}
+      {/* Center: Chat feed + input */}
       <div className="flex-1 flex flex-col min-w-0 border-r border-slate-800/40">
         <ChatPanel
           status={status}
@@ -167,7 +196,6 @@ export default function Dashboard({ onBack }) {
           sources={sources}
           query={query}
         />
-
         <ChatInput
           onSend={handleSend}
           disabled={status === 'thinking'}
@@ -175,7 +203,7 @@ export default function Dashboard({ onBack }) {
         />
       </div>
 
-      {/* ── Right: Report panel ── */}
+      {/* Right: Report panel */}
       <div className="w-105 shrink-0 hidden lg:flex lg:flex-col">
         <ReportPanel
           report={report}
@@ -184,7 +212,7 @@ export default function Dashboard({ onBack }) {
         />
       </div>
 
-      {/* ── Error toast ── */}
+      {/* Error toast */}
       {error && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}

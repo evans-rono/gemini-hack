@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Globe, FileText, AlertCircle, CheckCircle2, Terminal } from 'lucide-react'
 import ThinkingOrb from './ThinkingOrb'
 
-/* ── Status badge ── */
 function StatusBadge({ status }) {
   const map = {
     idle:       { label: 'Ready',        color: 'text-slate-500', dot: 'bg-slate-600' },
@@ -21,7 +20,6 @@ function StatusBadge({ status }) {
   )
 }
 
-/* ── Source card ── */
 function SourceCard({ source, index }) {
   return (
     <motion.a

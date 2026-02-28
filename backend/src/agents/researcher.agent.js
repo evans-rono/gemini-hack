@@ -1,6 +1,7 @@
 // src/agents/researcher.agent.js
 const BaseAgent = require('./base.agent');
 const geminiService = require('../services/gemini.service');
+const searchService = require('../services/search.service');
 const logger = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
 
@@ -20,12 +21,12 @@ class ResearcherAgent extends BaseAgent {
         this.status = 'busy';
 
         try {
-            const { description, keywords, priority, context } = task;
-            
+            const { description, keywords } = task;
+
             logger.info(`Researcher ${this.index} working on: "${description.substring(0, 50)}..."`);
 
-            // Simulate web search (in production, integrate with actual search API)
-            const searchResults = await this.simulateSearch(keywords);
+            // Real search via SearchService (Gemini-powered)
+            const searchResults = await searchService.search(keywords, description);
 
             // Extract findings from search results
             const findings = await this.extractFindings(description, searchResults);
@@ -54,72 +55,41 @@ class ResearcherAgent extends BaseAgent {
             this.updateMetrics(true, Date.now() - startTime);
             this.status = 'idle';
 
-            return {
-                success: true,
-                result
-            };
-
+            return { success: true, result };
         } catch (error) {
             logger.error(`Researcher ${this.index} error:`, error);
             this.updateMetrics(false, Date.now() - startTime);
             this.status = 'error';
 
-            return {
-                success: false,
-                error: error.message,
-                result: null
-            };
+            return { success: false, error: error.message, result: null };
         }
-    }
-
-    async simulateSearch(keywords) {
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-
-        // Return simulated search results
-        return keywords.map(keyword => ({
-            title: `Research on ${keyword}`,
-            url: `https://example.com/${keyword.replace(/\s+/g, '-')}`,
-            snippet: `Key findings about ${keyword}...`,
-            relevance: 0.7 + Math.random() * 0.3,
-            source: 'Simulated Research'
-        }));
     }
 
     async extractFindings(description, searchResults) {
         const prompt = `
-            Extract key findings from these search results:
+Extract key findings from these search results:
 
-            Research Task: "${description}"
+Research Task: "${description}"
 
-            Search Results:
-            ${JSON.stringify(searchResults, null, 2)}
+Search Results:
+${JSON.stringify(searchResults, null, 2)}
 
-            For each finding, provide:
-            1. The factual information
-            2. Source attribution
-            3. Category (statistic, expert_opinion, case_study, trend, background)
-            4. Confidence level (0-1)
+For each finding, provide:
+1. The factual information
+2. Source attribution
+3. Category (statistic, expert_opinion, case_study, trend, background)
+4. Confidence level (0-1)
 
-            Return a JSON array of findings.
-        `;
+Return a JSON array of findings:
+[{ "text": "...", "source": "...", "category": "...", "confidence": 0.0 }]
+`;
 
-        const schema = [
-            {
-                text: "string",
-                source: "string",
-                category: "string",
-                confidence: "number",
-                quote: "string (optional)"
-            }
-        ];
-
-        const result = await geminiService.generateStructured(prompt, schema, {
-            model: 'pro',
+        const result = await geminiService.generateStructured(prompt, [{ text: 'string', source: 'string', category: 'string', confidence: 'number' }], {
+            model: 'flash',
             temperature: 0.2
         });
 
-        return result.success ? result.data : [];
+        return result.success && Array.isArray(result.data) ? result.data : [];
     }
 
     async evaluateSources(findings) {
@@ -132,50 +102,37 @@ class ResearcherAgent extends BaseAgent {
     }
 
     assessCredibility(source) {
-        // Simple credibility assessment
-        // In production, check domain authority, publication reputation, etc.
-        const credibleDomains = ['.edu', '.gov', '.org', 'nature.com', 'science.org'];
-        
-        if (credibleDomains.some(domain => source.includes(domain))) {
+        if (!source) return 0.5;
+        const credibleDomains = ['.edu', '.gov', '.org', 'nature.com', 'science.org', 'arxiv.org', 'reuters.com', 'who.int'];
+        if (credibleDomains.some(domain => source.toLowerCase().includes(domain))) {
             return 0.9;
         }
-        
-        return 0.6; // Default moderate credibility
+        return 0.6;
     }
 
     async synthesizeFindings(description, findings) {
         const prompt = `
-            Synthesize these findings into a coherent summary:
+Synthesize these findings into a coherent summary:
 
-            Research Task: "${description}"
+Research Task: "${description}"
 
-            Findings:
-            ${JSON.stringify(findings, null, 2)}
+Findings:
+${JSON.stringify(findings, null, 2)}
 
-            Create:
-            1. A concise summary of what was discovered
-            2. 3-5 key insights or takeaways
-            3. List of all unique sources
+Create:
+1. A concise summary of what was discovered
+2. 3-5 key insights or takeaways
+3. List of all unique sources (as URLs or names)
 
-            Return JSON with summary, insights array, and sources array.
-        `;
+Return JSON: { "summary": "...", "insights": ["..."], "sources": ["..."] }
+`;
 
-        const schema = {
-            summary: "string",
-            insights: ["string"],
-            sources: ["string"]
-        };
-
-        const result = await geminiService.generateStructured(prompt, schema, {
-            model: 'pro',
+        const result = await geminiService.generateStructured(prompt, { summary: 'string', insights: ['string'], sources: ['string'] }, {
+            model: 'flash',
             temperature: 0.3
         });
 
-        return result.success ? result.data : {
-            summary: "Synthesis failed",
-            insights: [],
-            sources: []
-        };
+        return result.success ? result.data : { summary: 'Synthesis unavailable', insights: [], sources: [] };
     }
 }
 

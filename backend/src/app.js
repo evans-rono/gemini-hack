@@ -20,7 +20,7 @@ app.use(helmet({
 
 // CORS configuration
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: process.env.CLIENT_URL || 'http://localhost:5174',
     credentials: true,
     optionsSuccessStatus: 200
 }));
@@ -72,7 +72,7 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
     logger.error('Unhandled error:', err);
-    
+
     res.status(500).json({
         success: false,
         error: 'Internal server error',
